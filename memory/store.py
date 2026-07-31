@@ -1,11 +1,16 @@
 import logging
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, func, Integer
 from datetime import datetime
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import DateTime, Integer, String, Text, func, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
 from agent.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+EMBEDDING_DIMENSIONS = 1536
 
 
 class Base(DeclarativeBase):
@@ -44,7 +49,9 @@ class VectorMemory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIMENSIONS), nullable=True
+    )
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -60,7 +67,31 @@ async def init_db():
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _upgrade_schema()
     logger.info("Database initialized")
+
+
+async def _upgrade_schema() -> None:
+    if _engine is None:
+        return
+    try:
+        async with _engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.execute(
+                text(
+                    "ALTER TABLE vector_memory "
+                    "ALTER COLUMN embedding TYPE vector(1536) "
+                    "USING embedding::vector"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_vector_memory_hnsw "
+                    "ON vector_memory USING hnsw (embedding vector_cosine_ops)"
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Schema upgrade failed (continuing without it): {e}")
 
 
 async def get_session() -> AsyncSession:
