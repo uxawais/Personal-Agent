@@ -56,6 +56,16 @@ class VectorMemory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class ConversationTitle(Base):
+    __tablename__ = "conversation_titles"
+
+    conversation_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 _engine = None
 _session_factory = None
 
@@ -159,11 +169,52 @@ async def get_conversation_logs(conversation_id: str | None = None, limit: int =
         ]
 
 
+async def delete_session(conversation_id: str) -> None:
+    async with await get_session() as session:
+        from sqlalchemy import delete
+        await session.execute(
+            delete(ConversationLog).where(
+                ConversationLog.conversation_id == conversation_id
+            )
+        )
+        await session.commit()
+
+
+async def get_conversation_title(conversation_id: str) -> str | None:
+    async with await get_session() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(ConversationTitle.title).where(
+                ConversationTitle.conversation_id == conversation_id
+            )
+        )
+        return result.scalar()
+
+
+async def set_conversation_title(conversation_id: str, title: str) -> None:
+    async with await get_session() as session:
+        from sqlalchemy import select
+        entry = (
+            await session.execute(
+                select(ConversationTitle).where(
+                    ConversationTitle.conversation_id == conversation_id
+                )
+            )
+        ).scalar_one_or_none()
+        if entry is None:
+            session.add(
+                ConversationTitle(conversation_id=conversation_id, title=title)
+            )
+        else:
+            entry.title = title
+        await session.commit()
+
+
 async def list_sessions(channel: str = "dashboard", limit: int = 50) -> list[dict[str, object]]:
     async with await get_session() as session:
         stmt = text(
             """
-            SELECT s.conversation_id, s.last_message, s.last_at, s.message_count
+            SELECT s.conversation_id, s.last_message, s.last_at, s.message_count, t.title
             FROM (
                 SELECT conversation_id,
                        MAX(created_at) AS last_at,
@@ -175,6 +226,7 @@ async def list_sessions(channel: str = "dashboard", limit: int = 50) -> list[dic
                 WHERE channel = :channel
                 GROUP BY conversation_id
             ) s
+            LEFT JOIN conversation_titles t ON t.conversation_id = s.conversation_id
             ORDER BY s.last_at DESC
             LIMIT :limit
             """
@@ -187,6 +239,7 @@ async def list_sessions(channel: str = "dashboard", limit: int = 50) -> list[dic
                 "last_message": row["last_message"],
                 "last_at": row["last_at"].isoformat() if row["last_at"] else None,
                 "message_count": row["message_count"],
+                "title": row["title"],
             }
             for row in rows
         ]

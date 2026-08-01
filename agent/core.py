@@ -23,6 +23,22 @@ class AgentCore:
         channel: str = "web",
         user_id: str = "default",
     ) -> str:
+        result = await self.process_message_detailed(
+            user_message=user_message,
+            conversation_id=conversation_id,
+            channel=channel,
+            user_id=user_id,
+        )
+        return result["response"]
+
+    async def process_message_detailed(
+        self,
+        user_message: str,
+        conversation_id: str | None = None,
+        channel: str = "web",
+        user_id: str = "default",
+        model: str | None = None,
+    ) -> dict:
         conv_id = conversation_id or f"{channel}:{user_id}"
         conv = Conversation(self.redis, conv_id)
         await conv.add_message("user", user_message, {"channel": channel})
@@ -43,6 +59,7 @@ class AgentCore:
                 tools=tools if tools else None,
                 max_tokens=get_personality().max_tokens,
                 temperature=get_personality().temperature,
+                force_model=model,
             )
 
             if response.tool_calls:
@@ -81,11 +98,12 @@ class AgentCore:
                 continue
 
             final_text = response.content or "I'm sorry, I couldn't generate a response."
-            await conv.add_message("assistant", final_text, {"channel": channel})
+            model_used = response.model or None
             tokens = sum(int(v) for v in response.usage.values() if isinstance(v, (int, float)))
+            await conv.add_message("assistant", final_text, {"channel": channel})
             await log_conversation(
                 conv_id, channel, user_id, "assistant", final_text,
-                model_used=response.model or None, tokens_used=tokens,
+                model_used=model_used, tokens_used=tokens,
             )
             await save_memory(
                 category="conversation", key=conv_id, content=final_text, source=channel
@@ -94,7 +112,11 @@ class AgentCore:
                 final_text,
                 {"channel": channel, "role": "assistant", "conversation_id": conv_id},
             )
-            return final_text
+            return {
+                "response": final_text,
+                "model_used": model_used,
+                "tokens_used": tokens,
+            }
 
         fallback = (
             "I reached the maximum number of tool iterations. "
@@ -102,4 +124,4 @@ class AgentCore:
         )
         await conv.add_message("assistant", fallback, {"channel": channel})
         await log_conversation(conv_id, channel, user_id, "assistant", fallback)
-        return fallback
+        return {"response": fallback, "model_used": None, "tokens_used": 0}
