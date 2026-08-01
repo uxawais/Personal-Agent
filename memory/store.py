@@ -157,3 +157,36 @@ async def get_conversation_logs(conversation_id: str | None = None, limit: int =
             }
             for l in logs
         ]
+
+
+async def list_sessions(channel: str = "dashboard", limit: int = 50) -> list[dict[str, object]]:
+    async with await get_session() as session:
+        stmt = text(
+            """
+            SELECT s.conversation_id, s.last_message, s.last_at, s.message_count
+            FROM (
+                SELECT conversation_id,
+                       MAX(created_at) AS last_at,
+                       COUNT(*) AS message_count,
+                       (SELECT content FROM conversation_logs c2
+                        WHERE c2.conversation_id = c1.conversation_id
+                        ORDER BY c2.id DESC LIMIT 1) AS last_message
+                FROM conversation_logs c1
+                WHERE channel = :channel
+                GROUP BY conversation_id
+            ) s
+            ORDER BY s.last_at DESC
+            LIMIT :limit
+            """
+        ).bindparams(channel=channel, limit=limit)
+        result = await session.execute(stmt)
+        rows = result.mappings().all()
+        return [
+            {
+                "conversation_id": row["conversation_id"],
+                "last_message": row["last_message"],
+                "last_at": row["last_at"].isoformat() if row["last_at"] else None,
+                "message_count": row["message_count"],
+            }
+            for row in rows
+        ]

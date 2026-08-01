@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
-from agent.personality import get_personality, set_personality, PersonalityConfig
-from memory.store import get_memories, get_conversation_logs
+
+from agent.personality import PersonalityConfig, get_personality, set_personality
+from memory.store import get_conversation_logs, get_memories
+from memory.store import list_sessions as list_sessions_db
 from tools.registry import get_registered_tools
 
 router = APIRouter()
@@ -44,6 +46,11 @@ async def list_memories(category: str | None = None, limit: int = 20):
 @router.get("/conversations")
 async def list_conversations(conversation_id: str | None = None, limit: int = 50):
     return await get_conversation_logs(conversation_id, limit)
+
+
+@router.get("/sessions")
+async def list_sessions(limit: int = 50):
+    return await list_sessions_db(limit=limit)
 
 
 @router.get("/tools")

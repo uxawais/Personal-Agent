@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import ChatPanel from "@/components/ChatPanel";
+import SessionList from "@/components/SessionList";
 import StatusCard from "@/components/StatusCard";
 import PersonalityEditor from "@/components/PersonalityEditor";
 import MemoryViewer from "@/components/MemoryViewer";
@@ -13,10 +14,19 @@ type Tab = "chat" | "status" | "personality" | "memory" | "logs";
 export default function Home() {
   const [tab, setTab] = useState<Tab>("chat");
   const [status, setStatus] = useState<any>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch("/status").then(setStatus).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (sessionId === null) setSessionId(crypto.randomUUID());
+  }, [sessionId]);
+
+  function startNewChat() {
+    setSessionId(crypto.randomUUID());
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "chat", label: "Chat" },
@@ -56,7 +66,18 @@ export default function Home() {
       </aside>
 
       <main className="flex-1 overflow-auto p-8">
-        {tab === "chat" && <ChatPanel />}
+        {tab === "chat" && (
+          <div className="flex h-full">
+            <SessionList activeId={sessionId} onSelect={setSessionId} onNew={startNewChat} />
+            <div className="flex-1 pl-8">
+              {sessionId ? (
+                <ChatPanel sessionId={sessionId} />
+              ) : (
+                <p className="text-gray-500">Start a new chat</p>
+              )}
+            </div>
+          </div>
+        )}
         {tab === "status" && <StatusCard status={status} />}
         {tab === "personality" && <PersonalityEditor />}
         {tab === "memory" && <MemoryViewer />}

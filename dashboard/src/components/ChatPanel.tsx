@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 
 type Message = { role: "user" | "assistant"; content: string };
 
-export default function ChatPanel() {
+export default function ChatPanel({ sessionId }: { sessionId: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,19 +16,20 @@ export default function ChatPanel() {
   }, [messages]);
 
   useEffect(() => {
-    const historyId = process.env.NEXT_PUBLIC_CHAT_CONVERSATION_ID || "dashboard:dashboard";
-    apiFetch(`/conversations?conversation_id=${encodeURIComponent(historyId)}`)
+    setMessages([]);
+    apiFetch(`/conversations?conversation_id=${encodeURIComponent(sessionId)}`)
       .then((logs: { role: string; content: string }[]) => {
-        const history: Message[] = [...logs]
-          .reverse()
-          .map((log) => ({
-            role: log.role === "user" ? ("user" as const) : ("assistant" as const),
-            content: log.content,
-          }));
-        setMessages((m) => [...history, ...m]);
+        setMessages(
+          [...logs]
+            .reverse()
+            .map((log) => ({
+              role: log.role === "user" ? ("user" as const) : ("assistant" as const),
+              content: log.content,
+            }))
+        );
       })
       .catch(console.error);
-  }, []);
+  }, [sessionId]);
 
   async function send() {
     if (!input.trim() || loading) return;
@@ -39,7 +40,7 @@ export default function ChatPanel() {
     try {
       const res = await apiFetch("/chat", {
         method: "POST",
-        body: JSON.stringify({ message: userMsg }),
+        body: JSON.stringify({ message: userMsg, conversation_id: sessionId }),
       });
       setMessages((m) => [...m, { role: "assistant", content: res.response }]);
     } catch (e) {
