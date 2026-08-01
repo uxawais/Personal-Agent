@@ -1,10 +1,12 @@
 import json
 import logging
-from agent.config import get_settings
+
 from agent.conversation import Conversation
 from agent.personality import get_effective_system_prompt, get_personality
+from memory.store import log_conversation, save_memory
+from memory.vector import store_vector_memory
 from models.router import ModelRouter
-from tools.registry import get_tool_schemas, execute_tool
+from tools.registry import execute_tool, get_tool_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +23,13 @@ class AgentCore:
         channel: str = "web",
         user_id: str = "default",
     ) -> str:
-        conv = Conversation(self.redis, conversation_id or f"{channel}:{user_id}")
+        conv_id = conversation_id or f"{channel}:{user_id}"
+        conv = Conversation(self.redis, conv_id)
         await conv.add_message("user", user_message, {"channel": channel})
+        await log_conversation(conv_id, channel, user_id, "user", user_message)
+        await store_vector_memory(
+            user_message, {"channel": channel, "role": "user", "conversation_id": conv_id}
+        )
 
         history = await conv.get_messages_for_model()
         tools = get_tool_schemas()
@@ -75,8 +82,24 @@ class AgentCore:
 
             final_text = response.content or "I'm sorry, I couldn't generate a response."
             await conv.add_message("assistant", final_text, {"channel": channel})
+            tokens = sum(int(v) for v in response.usage.values() if isinstance(v, (int, float)))
+            await log_conversation(
+                conv_id, channel, user_id, "assistant", final_text,
+                model_used=response.model or None, tokens_used=tokens,
+            )
+            await save_memory(
+                category="conversation", key=conv_id, content=final_text, source=channel
+            )
+            await store_vector_memory(
+                final_text,
+                {"channel": channel, "role": "assistant", "conversation_id": conv_id},
+            )
             return final_text
 
-        fallback = "I reached the maximum number of tool iterations. Here's what I have so far based on our conversation."
+        fallback = (
+            "I reached the maximum number of tool iterations. "
+            "Here's what I have so far based on our conversation."
+        )
         await conv.add_message("assistant", fallback, {"channel": channel})
+        await log_conversation(conv_id, channel, user_id, "assistant", fallback)
         return fallback

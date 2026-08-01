@@ -15,6 +15,21 @@ export default function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    const historyId = process.env.NEXT_PUBLIC_CHAT_CONVERSATION_ID || "dashboard:dashboard";
+    apiFetch(`/conversations?conversation_id=${encodeURIComponent(historyId)}`)
+      .then((logs: { role: string; content: string }[]) => {
+        const history: Message[] = [...logs]
+          .reverse()
+          .map((log) => ({
+            role: log.role === "user" ? ("user" as const) : ("assistant" as const),
+            content: log.content,
+          }));
+        setMessages((m) => [...history, ...m]);
+      })
+      .catch(console.error);
+  }, []);
+
   async function send() {
     if (!input.trim() || loading) return;
     const userMsg = input.trim();

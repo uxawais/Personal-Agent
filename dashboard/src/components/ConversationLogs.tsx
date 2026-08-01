@@ -20,10 +20,23 @@ export default function ConversationLogs() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch("/conversations")
-      .then(setLogs)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await apiFetch("/conversations");
+        if (!cancelled) setLogs(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    const interval = setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) return <p className="text-gray-400">Loading...</p>;

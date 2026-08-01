@@ -21,3 +21,4 @@ dashboard/node_modules/
 logs/
 *.log
 docker-compose.override.yml
+dashboard/tsconfig.tsbuildinfo
